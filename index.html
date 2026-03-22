@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stickman Ragdoll</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        
+        h1 {
+            color: #eee;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+        
+        .instructions {
+            color: #888;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+        
+        canvas {
+            border: 4px solid #4a4a6a;
+            border-radius: 8px;
+            background: #16213e;
+            cursor: grab;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+        
+        canvas:active {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body>
+    <h1>Stickman Ragdoll</h1>
+    <p class="instructions">Click and drag any body part to throw the ragdoll!</p>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const GRAVITY = 0.5;
+        const FRICTION = 0.99;
+        const BOUNCE = 0.7;
+        const CONSTRAINT_ITERATIONS = 5;
+        
+        // Box boundaries
+        const BOX = {
+            x: 50,
+            y: 50,
+            width: 700,
+            height: 500
+        };
+        
+        // Point class for physics particles
+        class Point {
+            constructor(x, y, radius = 8) {
+                this.x = x;
+                this.y = y;
+                this.oldX = x;
+                this.oldY = y;
+                this.radius = radius;
+                this.mass = 1;
+                this.pinned = false;
+            }
+            
+            update() {
+                if (this.pinned) return;
+                
+                const vx = (this.x - this.oldX) * FRICTION;
+                const vy = (this.y - this.oldY) * FRICTION;
+                
+                this.oldX = this.x;
+                this.oldY = this.y;
+                
+                this.x += vx;
+                this.y += vy + GRAVITY;
+                
+                this.constrain();
+            }
+            
+            constrain() {
+                // Left wall
+                if (this.x - this.radius < BOX.x) {
+                    this.x = BOX.x + this.radius;
+                    this.oldX = this.x + (this.x - this.oldX) * BOUNCE;
+                }
+                // Right wall
+                if (this.x + this.radius > BOX.x + BOX.width) {
+                    this.x = BOX.x + BOX.width - this.radius;
+                    this.oldX = this.x + (this.x - this.oldX) * BOUNCE;
+                }
+                // Top wall
+                if (this.y - this.radius < BOX.y) {
+                    this.y = BOX.y + this.radius;
+                    this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
+                }
+                // Bottom wall
+                if (this.y + this.radius > BOX.y + BOX.height) {
+                    this.y = BOX.y + BOX.height - this.radius;
+                    this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
+                }
+            }
+        }
+        
+        // Stick constraint between two points
+        class Stick {
+            constructor(p1, p2, length = null) {
+                this.p1 = p1;
+                this.p2 = p2;
+                this.length = length || this.getDistance();
+            }
+            
+            getDistance() {
+                const dx = this.p2.x - this.p1.x;
+                const dy = this.p2.y - this.p1.y;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+            
+            update() {
+                const dx = this.p2.x - this.p1.x;
+                const dy = this.p2.y - this.p1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const difference = this.length - distance;
+                const percent = difference / distance / 2;
+                const offsetX = dx * percent;
+                const offsetY = dy * percent;
+                
+                if (!this.p1.pinned) {
+                    this.p1.x -= offsetX;
+                    this.p1.y -= offsetY;
+                }
+                if (!this.p2.pinned) {
+                    this.p2.x += offsetX;
+                    this.p2.y += offsetY;
+                }
+            }
+        }
+        
+        // Create ragdoll
+        const centerX = BOX.x + BOX.width / 2;
+        const centerY = BOX.y + BOX.height / 2;
+        
+        // Body parts (points)
+        const head = new Point(centerX, centerY - 80, 20);
+        const neck = new Point(centerX, centerY - 50);
+        const torso = new Point(centerX, centerY);
+        const pelvis = new Point(centerX, centerY + 40);
+        
+        // Arms
+        const leftShoulder = new Point(centerX - 30, centerY - 40);
+        const leftElbow = new Point(centerX - 60, centerY - 20);
+        const leftHand = new Point(centerX - 80, centerY);
+        
+        const rightShoulder = new Point(centerX + 30, centerY - 40);
+        const rightElbow = new Point(centerX + 60, centerY - 20);
+        const rightHand = new Point(centerX + 80, centerY);
+        
+        // Legs
+        const leftHip = new Point(centerX - 15, centerY + 50);
+        const leftKnee = new Point(centerX - 20, centerY + 90);
+        const leftFoot = new Point(centerX - 25, centerY + 130);
+        
+        const rightHip = new Point(centerX + 15, centerY + 50);
+        const rightKnee = new Point(centerX + 20, centerY + 90);
+        const rightFoot = new Point(centerX + 25, centerY + 130);
+        
+        const points = [
+            head, neck, torso, pelvis,
+            leftShoulder, leftElbow, leftHand,
+            rightShoulder, rightElbow, rightHand,
+            leftHip, leftKnee, leftFoot,
+            rightHip, rightKnee, rightFoot
+        ];
+        
+        // Create sticks (constraints)
+        const sticks = [
+            // Head to neck
+            new Stick(head, neck),
+            // Neck to torso
+            new Stick(neck, torso),
+            // Torso to pelvis
+            new Stick(torso, pelvis),
+            
+            // Left arm
+            new Stick(neck, leftShoulder),
+            new Stick(leftShoulder, leftElbow),
+            new Stick(leftElbow, leftHand),
+            
+            // Right arm
+            new Stick(neck, rightShoulder),
+            new Stick(rightShoulder, rightElbow),
+            new Stick(rightElbow, rightHand),
+            
+            // Left leg
+            new Stick(pelvis, leftHip),
+            new Stick(leftHip, leftKnee),
+            new Stick(leftKnee, leftFoot),
+            
+            // Right leg
+            new Stick(pelvis, rightHip),
+            new Stick(rightHip, rightKnee),
+            new Stick(rightKnee, rightFoot),
+            
+            // Cross constraints for stability
+            new Stick(head, leftShoulder),
+            new Stick(head, rightShoulder),
+            new Stick(leftShoulder, rightShoulder),
+            new Stick(leftHip, rightHip),
+            new Stick(leftShoulder, torso),
+            new Stick(rightShoulder, torso),
+            new Stick(leftHip, pelvis),
+            new Stick(rightHip, pelvis),
+            new Stick(leftShoulder, leftHip),
+            new Stick(rightShoulder, rightHip),
+            new Stick(leftElbow, torso),
+            new Stick(rightElbow, torso),
+        ];
+        
+        // Mouse interaction
+        let draggedPoint = null;
+        let mouseX = 0;
+        let mouseY = 0;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            
+            // Find closest point within grab radius
+            let closest = null;
+            let closestDist = 40;
+            
+            for (const point of points) {
+                const dx = point.x - mouseX;
+                const dy = point.y - mouseY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = point;
+                }
+            }
+            
+            if (closest) {
+                draggedPoint = closest;
+                draggedPoint.pinned = true;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            
+            if (draggedPoint) {
+                draggedPoint.x = mouseX;
+                draggedPoint.y = mouseY;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            if (draggedPoint) {
+                draggedPoint.pinned = false;
+                // Apply throwing velocity
+                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * 2;
+                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * 2;
+                draggedPoint = null;
+            }
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            if (draggedPoint) {
+                draggedPoint.pinned = false;
+                draggedPoint = null;
+            }
+        });
+        
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        
+        // Track mouse velocity for throwing
+        setInterval(() => {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+        }, 16);
+        
+        // Draw functions
+        function drawBox() {
+            ctx.strokeStyle = '#4a4a6a';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(BOX.x, BOX.y, BOX.width, BOX.height);
+            
+            // Draw corner accents
+            ctx.fillStyle = '#6a6a8a';
+            const cornerSize = 15;
+            // Top-left
+            ctx.fillRect(BOX.x - 2, BOX.y - 2, cornerSize, 4);
+            ctx.fillRect(BOX.x - 2, BOX.y - 2, 4, cornerSize);
+            // Top-right
+            ctx.fillRect(BOX.x + BOX.width - cornerSize + 2, BOX.y - 2, cornerSize, 4);
+            ctx.fillRect(BOX.x + BOX.width - 2, BOX.y - 2, 4, cornerSize);
+            // Bottom-left
+            ctx.fillRect(BOX.x - 2, BOX.y + BOX.height - 2, cornerSize, 4);
+            ctx.fillRect(BOX.x - 2, BOX.y + BOX.height - cornerSize + 2, 4, cornerSize);
+            // Bottom-right
+            ctx.fillRect(BOX.x + BOX.width - cornerSize + 2, BOX.y + BOX.height - 2, cornerSize, 4);
+            ctx.fillRect(BOX.x + BOX.width - 2, BOX.y + BOX.height - cornerSize + 2, 4, cornerSize);
+        }
+        
+        function drawStickman() {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            // Draw limbs (sticks)
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 6;
+            
+            // Get all unique sticks to draw (avoiding duplicates from cross constraints)
+            const limbSticks = sticks.slice(0, 17); // Main body sticks
+            
+            for (const stick of limbSticks) {
+                ctx.beginPath();
+                ctx.moveTo(stick.p1.x, stick.p1.y);
+                ctx.lineTo(stick.p2.x, stick.p2.y);
+                ctx.stroke();
+            }
+            
+            // Draw head
+            ctx.fillStyle = '#eee';
+            ctx.beginPath();
+            ctx.arc(head.x, head.y, head.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw eyes
+            ctx.fillStyle = '#1a1a2e';
+            ctx.beginPath();
+            ctx.arc(head.x - 6, head.y - 2, 3, 0, Math.PI * 2);
+            ctx.arc(head.x + 6, head.y - 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw joints as small dots
+            ctx.fillStyle = '#ff6b6b';
+            for (const point of points) {
+                if (point !== head) {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        function update() {
+            // Update physics
+            for (const point of points) {
+                point.update();
+            }
+            
+            // Solve constraints multiple times for stability
+            for (let i = 0; i < CONSTRAINT_ITERATIONS; i++) {
+                for (const stick of sticks) {
+                    stick.update();
+                }
+                // Re-constrain points after stick updates
+                for (const point of points) {
+                    point.constrain();
+                }
+            }
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBox();
+            drawStickman();
+        }
+        
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+        
+        // Start the simulation
+        loop();
+    </script>
+</body>
+</html>
