@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Human Ragdoll Physics</title>
+    <title>Stickman Ragdoll</title>
     <style>
         * {
             margin: 0;
@@ -60,8 +60,8 @@
     </style>
 </head>
 <body>
-    <h1>Human Ragdoll</h1>
-    <p class="instructions">Click and drag any body part to throw the human!</p>
+    <h1>Stickman Ragdoll</h1>
+    <p class="instructions">Click and drag any body part to throw the ragdoll!</p>
     <canvas id="canvas"></canvas>
     
     <script>
@@ -95,16 +95,12 @@
             repositionRagdoll();
         }
         
-        // Human-like physics parameters
-        const GRAVITY = 0.4;           // Slightly less gravity for floatier feel
-        const FRICTION = 0.992;       // More air resistance
-        const GROUND_FRICTION = 0.85;  // Friction when on ground
-        const BOUNCE = 0.3;            // Less bouncy - human tissue absorbs impact
-        const MUSCLE_TENSION = 0.008;  // How much limbs try to return to natural pose
-        const HEAD_LAG = 0.15;         // How much head lags behind body
-        const CONSTRAINT_ITERATIONS = 8;
+        const GRAVITY = 0.5;
+        const FRICTION = 0.99;
+        const BOUNCE = 0.7;
+        const CONSTRAINT_ITERATIONS = 5;
         
-        // Box boundaries
+        // Box boundaries (will be updated by setCanvasSize)
         const BOX = {
             x: 50,
             y: 50,
@@ -113,28 +109,21 @@
         };
         
         // Scale factor for grabbing radius
-        let grabRadius = 50;
+        let grabRadius = 40;
         
-        // Natural pose angles (relative positions for limbs to try to maintain)
-        const naturalPose = {};
-        
-        // Point class for physics particles - now with mass and muscle memory
+        // Point class for physics particles
         class Point {
-            constructor(x, y, radius = 8, mass = 1) {
+            constructor(x, y, radius = 8) {
                 this.x = x;
                 this.y = y;
                 this.oldX = x;
                 this.oldY = y;
                 this.radius = radius;
-                this.mass = mass;
+                this.mass = 1;
                 this.pinned = false;
-                this.isHead = false;
-                this.isTorso = false;
-                this.naturalX = 0;  // Relative to parent/body center
-                this.naturalY = 0;
             }
             
-            update(centerX, centerY) {
+            update() {
                 if (this.pinned) return;
                 
                 const vx = (this.x - this.oldX) * FRICTION;
@@ -143,25 +132,13 @@
                 this.oldX = this.x;
                 this.oldY = this.y;
                 
-                // Apply gravity (heavier parts fall slightly faster)
                 this.x += vx;
-                this.y += vy + GRAVITY * (this.mass * 0.5 + 0.5);
-                
-                // Head lags behind like a real head
-                if (this.isHead) {
-                    const targetX = centerX + (this.x - centerX) * (1 - HEAD_LAG);
-                    const targetY = centerY + (this.y - centerY) * (1 - HEAD_LAG);
-                    this.x = this.x * (1 - HEAD_LAG) + targetX * HEAD_LAG;
-                    this.y = this.y * (1 - HEAD_LAG) + targetY * HEAD_LAG;
-                }
+                this.y += vy + GRAVITY;
                 
                 this.constrain();
             }
             
             constrain() {
-                // Ground collision with human-like bounce
-                const wasInAir = this.y - this.radius > BOX.y + BOX.height - 10;
-                
                 // Left wall
                 if (this.x - this.radius < BOX.x) {
                     this.x = BOX.x + this.radius;
@@ -177,29 +154,20 @@
                     this.y = BOX.y + this.radius;
                     this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
                 }
-                // Bottom wall (ground)
+                // Bottom wall
                 if (this.y + this.radius > BOX.y + BOX.height) {
                     this.y = BOX.y + BOX.height - this.radius;
-                    // More realistic ground impact
-                    if (wasInAir) {
-                        // Heavy thud on impact
-                        this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
-                    } else {
-                        // Ground friction
-                        this.oldX = this.x - (this.x - this.oldX) * (1 - GROUND_FRICTION);
-                    }
+                    this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
                 }
             }
         }
         
-        // Stick constraint with muscle memory
+        // Stick constraint between two points
         class Stick {
-            constructor(p1, p2, length = null, isLimb = false) {
+            constructor(p1, p2, length = null) {
                 this.p1 = p1;
                 this.p2 = p2;
                 this.length = length || this.getDistance();
-                this.isLimb = isLimb;  // Limbs have more freedom
-                this.stiffness = isLimb ? 0.4 : 0.5;  // How rigid the joint is
             }
             
             getDistance() {
@@ -212,39 +180,31 @@
                 const dx = this.p2.x - this.p1.x;
                 const dy = this.p2.y - this.p1.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance === 0) return;
-                
                 const difference = this.length - distance;
-                const percent = difference / distance * this.stiffness;
+                const percent = difference / distance / 2;
                 const offsetX = dx * percent;
                 const offsetY = dy * percent;
                 
-                // Mass-based movement (heavier parts move less)
-                const totalMass = this.p1.mass + this.p2.mass;
-                const p1Ratio = this.p2.mass / totalMass;
-                const p2Ratio = this.p1.mass / totalMass;
-                
                 if (!this.p1.pinned) {
-                    this.p1.x -= offsetX * p1Ratio;
-                    this.p1.y -= offsetY * p1Ratio;
+                    this.p1.x -= offsetX;
+                    this.p1.y -= offsetY;
                 }
                 if (!this.p2.pinned) {
-                    this.p2.x += offsetX * p2Ratio;
-                    this.p2.y += offsetY * p2Ratio;
+                    this.p2.x += offsetX;
+                    this.p2.y += offsetY;
                 }
             }
         }
         
-        // Create human ragdoll with realistic proportions
+        // Create ragdoll
         let centerX, centerY;
         
-        // Body parts
-        let head, neck, chest, belly, pelvis;
-        let leftShoulder, leftElbow, leftWrist, leftHand;
-        let rightShoulder, rightElbow, rightWrist, rightHand;
-        let leftHip, leftKnee, leftAnkle, leftFoot;
-        let rightHip, rightKnee, rightAnkle, rightFoot;
+        // Body parts (points)
+        let head, neck, torso, pelvis;
+        let leftShoulder, leftElbow, leftHand;
+        let rightShoulder, rightElbow, rightHand;
+        let leftHip, leftKnee, leftFoot;
+        let rightHip, rightKnee, rightFoot;
         let points = [];
         let sticks = [];
         
@@ -252,112 +212,93 @@
             centerX = BOX.x + BOX.width / 2;
             centerY = BOX.y + BOX.height / 2;
             
-            // Head - smaller, more realistic size
-            head = new Point(centerX, centerY - 90, 14, 0.8);
-            head.isHead = true;
-            neck = new Point(centerX, centerY - 70, 6, 1);
+            // Body parts (points)
+            head = new Point(centerX, centerY - 80, 20);
+            neck = new Point(centerX, centerY - 50);
+            torso = new Point(centerX, centerY);
+            pelvis = new Point(centerX, centerY + 40);
             
-            // Torso - heavier, main mass center (chest and belly)
-            chest = new Point(centerX, centerY - 50, 8, 3);   // Heavy chest
-            chest.isTorso = true;
-            belly = new Point(centerX, centerY - 25, 8, 2.5); // Slightly lighter belly
-            pelvis = new Point(centerX, centerY, 8, 2);
+            // Arms
+            leftShoulder = new Point(centerX - 30, centerY - 40);
+            leftElbow = new Point(centerX - 60, centerY - 20);
+            leftHand = new Point(centerX - 80, centerY);
             
-            // Left arm - shoulder to hand (realistic arm length)
-            leftShoulder = new Point(centerX - 25, centerY - 55, 5, 1.2);
-            leftElbow = new Point(centerX - 45, centerY - 45, 4, 0.8);
-            leftWrist = new Point(centerX - 60, centerY - 35, 3, 0.5);
-            leftHand = new Point(centerX - 72, centerY - 28, 5, 0.4);
+            rightShoulder = new Point(centerX + 30, centerY - 40);
+            rightElbow = new Point(centerX + 60, centerY - 20);
+            rightHand = new Point(centerX + 80, centerY);
             
-            // Right arm
-            rightShoulder = new Point(centerX + 25, centerY - 55, 5, 1.2);
-            rightElbow = new Point(centerX + 45, centerY - 45, 4, 0.8);
-            rightWrist = new Point(centerX + 60, centerY - 35, 3, 0.5);
-            rightHand = new Point(centerX + 72, centerY - 28, 5, 0.4);
+            // Legs
+            leftHip = new Point(centerX - 15, centerY + 50);
+            leftKnee = new Point(centerX - 20, centerY + 90);
+            leftFoot = new Point(centerX - 25, centerY + 130);
             
-            // Left leg - hip to foot (realistic leg length)
-            leftHip = new Point(centerX - 12, centerY + 10, 5, 1.5);
-            leftKnee = new Point(centerX - 14, centerY + 50, 4, 1);
-            leftAnkle = new Point(centerX - 15, centerY + 90, 3, 0.8);
-            leftFoot = new Point(centerX - 18, centerY + 125, 6, 1);
-            
-            // Right leg
-            rightHip = new Point(centerX + 12, centerY + 10, 5, 1.5);
-            rightKnee = new Point(centerX + 14, centerY + 50, 4, 1);
-            rightAnkle = new Point(centerX + 15, centerY + 90, 3, 0.8);
-            rightFoot = new Point(centerX + 18, centerY + 125, 6, 1);
+            rightHip = new Point(centerX + 15, centerY + 50);
+            rightKnee = new Point(centerX + 20, centerY + 90);
+            rightFoot = new Point(centerX + 25, centerY + 130);
             
             points = [
-                head, neck, chest, belly, pelvis,
-                leftShoulder, leftElbow, leftWrist, leftHand,
-                rightShoulder, rightElbow, rightWrist, rightHand,
-                leftHip, leftKnee, leftAnkle, leftFoot,
-                rightHip, rightKnee, rightAnkle, rightFoot
+                head, neck, torso, pelvis,
+                leftShoulder, leftElbow, leftHand,
+                rightShoulder, rightElbow, rightHand,
+                leftHip, leftKnee, leftFoot,
+                rightHip, rightKnee, rightFoot
             ];
-            
-            // Store natural positions relative to body center
-            for (const p of points) {
-                p.naturalX = p.x - centerX;
-                p.naturalY = p.y - centerY;
-            }
             
             // Create sticks (constraints)
             sticks = [
-                // Head and neck
+                // Head to neck
                 new Stick(head, neck),
-                new Stick(neck, chest),
-                new Stick(chest, belly),
-                new Stick(belly, pelvis),
+                // Neck to torso
+                new Stick(neck, torso),
+                // Torso to pelvis
+                new Stick(torso, pelvis),
                 
-                // Left arm - looser joints for more natural movement
-                new Stick(neck, leftShoulder, null, true),
-                new Stick(leftShoulder, leftElbow, null, true),
-                new Stick(leftElbow, leftWrist, null, true),
-                new Stick(leftWrist, leftHand, null, true),
+                // Left arm
+                new Stick(neck, leftShoulder),
+                new Stick(leftShoulder, leftElbow),
+                new Stick(leftElbow, leftHand),
                 
                 // Right arm
-                new Stick(neck, rightShoulder, null, true),
-                new Stick(rightShoulder, rightElbow, null, true),
-                new Stick(rightElbow, rightWrist, null, true),
-                new Stick(rightWrist, rightHand, null, true),
+                new Stick(neck, rightShoulder),
+                new Stick(rightShoulder, rightElbow),
+                new Stick(rightElbow, rightHand),
                 
                 // Left leg
-                new Stick(pelvis, leftHip, null, true),
-                new Stick(leftHip, leftKnee, null, true),
-                new Stick(leftKnee, leftAnkle, null, true),
-                new Stick(leftAnkle, leftFoot, null, true),
+                new Stick(pelvis, leftHip),
+                new Stick(leftHip, leftKnee),
+                new Stick(leftKnee, leftFoot),
                 
                 // Right leg
-                new Stick(pelvis, rightHip, null, true),
-                new Stick(rightHip, rightKnee, null, true),
-                new Stick(rightKnee, rightAnkle, null, true),
-                new Stick(rightAnkle, rightFoot, null, true),
+                new Stick(pelvis, rightHip),
+                new Stick(rightHip, rightKnee),
+                new Stick(rightKnee, rightFoot),
                 
-                // Structural constraints (keep body connected)
-                new Stick(head, chest),        // Head to chest
-                new Stick(leftShoulder, rightShoulder), // Shoulder width
-                new Stick(leftHip, rightHip),  // Hip width
-                new Stick(leftShoulder, chest),
-                new Stick(rightShoulder, chest),
+                // Cross constraints for stability
+                new Stick(head, leftShoulder),
+                new Stick(head, rightShoulder),
+                new Stick(leftShoulder, rightShoulder),
+                new Stick(leftHip, rightHip),
+                new Stick(leftShoulder, torso),
+                new Stick(rightShoulder, torso),
                 new Stick(leftHip, pelvis),
                 new Stick(rightHip, pelvis),
-                new Stick(leftShoulder, leftHip),  // Body side
+                new Stick(leftShoulder, leftHip),
                 new Stick(rightShoulder, rightHip),
-                
-                // Extra stability
-                new Stick(chest, leftHip),
-                new Stick(chest, rightHip),
-                new Stick(belly, leftHip),
-                new Stick(belly, rightHip),
+                new Stick(leftElbow, torso),
+                new Stick(rightElbow, torso),
             ];
         }
         
         function repositionRagdoll() {
             if (points.length === 0) return;
             
-            // Store old center
-            const oldCenterX = belly.x;
-            const oldCenterY = belly.y;
+            // Calculate scale factor based on new box size
+            const scaleX = BOX.width / 700;
+            const scaleY = BOX.height / 500;
+            
+            // Store old center positions
+            const oldCenterX = (head.x + leftFoot.x + rightFoot.x) / 3;
+            const oldCenterY = (head.y + leftFoot.y + rightFoot.y) / 3;
             
             // Recalculate new center
             const newCenterX = BOX.x + BOX.width / 2;
@@ -443,10 +384,9 @@
         canvas.addEventListener('mouseup', () => {
             if (draggedPoint) {
                 draggedPoint.pinned = false;
-                // Apply throwing velocity with human-like weight
-                const throwMultiplier = draggedPoint.mass * 1.5;
-                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * throwMultiplier;
-                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * throwMultiplier;
+                // Apply throwing velocity
+                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * 2;
+                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * 2;
                 draggedPoint = null;
             }
         });
@@ -489,9 +429,9 @@
             e.preventDefault();
             if (draggedPoint) {
                 draggedPoint.pinned = false;
-                const throwMultiplier = draggedPoint.mass * 1.5;
-                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * throwMultiplier;
-                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * throwMultiplier;
+                // Apply throwing velocity
+                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * 2;
+                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * 2;
                 draggedPoint = null;
             }
         }, { passive: false });
@@ -507,7 +447,7 @@
         let lastMouseX = 0;
         let lastMouseY = 0;
         
-        // Track mouse velocity
+        // Track mouse velocity for throwing
         setInterval(() => {
             lastMouseX = mouseX;
             lastMouseY = mouseY;
@@ -534,150 +474,54 @@
             // Bottom-right
             ctx.fillRect(BOX.x + BOX.width - cornerSize + 2, BOX.y + BOX.height - 2, cornerSize, 4);
             ctx.fillRect(BOX.x + BOX.width - 2, BOX.y + BOX.height - cornerSize + 2, 4, cornerSize);
-            
-            // Draw floor texture
-            ctx.fillStyle = '#2a2a4a';
-            ctx.fillRect(BOX.x, BOX.y + BOX.height - 3, BOX.width, 3);
         }
         
-        function drawHuman() {
+        function drawStickman() {
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             
-            // Draw body outline (thicker for torso)
-            ctx.strokeStyle = '#ddd';
-            ctx.lineWidth = 10;
+            // Draw limbs (sticks)
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 6;
             
-            // Torso line
-            ctx.beginPath();
-            ctx.moveTo(chest.x, chest.y);
-            ctx.lineTo(belly.x, belly.y);
-            ctx.lineTo(pelvis.x, pelvis.y);
-            ctx.stroke();
+            // Get all unique sticks to draw (avoiding duplicates from cross constraints)
+            const limbSticks = sticks.slice(0, 17); // Main body sticks
             
-            // Draw limbs (arms and legs)
-            ctx.lineWidth = 7;
-            ctx.strokeStyle = '#ccc';
-            
-            // Left arm
-            ctx.beginPath();
-            ctx.moveTo(leftShoulder.x, leftShoulder.y);
-            ctx.lineTo(leftElbow.x, leftElbow.y);
-            ctx.lineTo(leftWrist.x, leftWrist.y);
-            ctx.lineTo(leftHand.x, leftHand.y);
-            ctx.stroke();
-            
-            // Right arm
-            ctx.beginPath();
-            ctx.moveTo(rightShoulder.x, rightShoulder.y);
-            ctx.lineTo(rightElbow.x, rightElbow.y);
-            ctx.lineTo(rightWrist.x, rightWrist.y);
-            ctx.lineTo(rightHand.x, rightHand.y);
-            ctx.stroke();
-            
-            // Left leg
-            ctx.beginPath();
-            ctx.moveTo(leftHip.x, leftHip.y);
-            ctx.lineTo(leftKnee.x, leftKnee.y);
-            ctx.lineTo(leftAnkle.x, leftAnkle.y);
-            ctx.lineTo(leftFoot.x, leftFoot.y);
-            ctx.stroke();
-            
-            // Right leg
-            ctx.beginPath();
-            ctx.moveTo(rightHip.x, rightHip.y);
-            ctx.lineTo(rightKnee.x, rightKnee.y);
-            ctx.lineTo(rightAnkle.x, rightAnkle.y);
-            ctx.lineTo(rightFoot.x, rightFoot.y);
-            ctx.stroke();
-            
-            // Draw shoulders
-            ctx.lineWidth = 12;
-            ctx.beginPath();
-            ctx.moveTo(leftShoulder.x, leftShoulder.y);
-            ctx.lineTo(rightShoulder.x, rightShoulder.y);
-            ctx.stroke();
-            
-            // Draw hips
-            ctx.beginPath();
-            ctx.moveTo(leftHip.x, leftHip.y);
-            ctx.lineTo(rightHip.x, rightHip.y);
-            ctx.stroke();
-            
-            // Draw head (more realistic - oval shape)
-            ctx.fillStyle = '#e8c4a0';  // Skin tone
-            ctx.beginPath();
-            ctx.ellipse(head.x, head.y, 16, 20, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Hair
-            ctx.fillStyle = '#4a3728';
-            ctx.beginPath();
-            ctx.ellipse(head.x, head.y - 5, 14, 12, 0, Math.PI, Math.PI * 2);
-            ctx.fill();
-            
-            // Eyes (direction based on velocity)
-            const vx = head.x - head.oldX;
-            const vy = head.y - head.oldY;
-            const eyeOffsetX = vx * 2;
-            const eyeOffsetY = vy * 2;
-            
-            ctx.fillStyle = '#333';
-            ctx.beginPath();
-            ctx.arc(head.x - 5 + eyeOffsetX, head.y - 2 + eyeOffsetY, 2.5, 0, Math.PI * 2);
-            ctx.arc(head.x + 5 + eyeOffsetX, head.y - 2 + eyeOffsetY, 2.5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Draw hands and feet (flesh colored)
-            ctx.fillStyle = '#e8c4a0';
-            
-            // Hands
-            ctx.beginPath();
-            ctx.arc(leftHand.x, leftHand.y, 6, 0, Math.PI * 2);
-            ctx.arc(rightHand.x, rightHand.y, 6, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Feet
-            ctx.fillStyle = '#555';
-            ctx.beginPath();
-            ctx.ellipse(leftFoot.x, leftFoot.y, 8, 4, 0, 0, Math.PI * 2);
-            ctx.ellipse(rightFoot.x, rightFoot.y, 8, 4, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Draw joints (elbows, knees) as subtle dots
-            ctx.fillStyle = '#999';
-            ctx.beginPath();
-            ctx.arc(leftElbow.x, leftElbow.y, 2, 0, Math.PI * 2);
-            ctx.arc(rightElbow.x, rightElbow.y, 2, 0, Math.PI * 2);
-            ctx.arc(leftKnee.x, leftKnee.y, 2, 0, Math.PI * 2);
-            ctx.arc(rightKnee.x, rightKnee.y, 2, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        
-        function getBodyCenter() {
-            // Calculate center of mass
-            let totalMass = 0;
-            let sumX = 0;
-            let sumY = 0;
-            
-            for (const point of points) {
-                sumX += point.x * point.mass;
-                sumY += point.y * point.mass;
-                totalMass += point.mass;
+            for (const stick of limbSticks) {
+                ctx.beginPath();
+                ctx.moveTo(stick.p1.x, stick.p1.y);
+                ctx.lineTo(stick.p2.x, stick.p2.y);
+                ctx.stroke();
             }
             
-            return {
-                x: sumX / totalMass,
-                y: sumY / totalMass
-            };
+            // Draw head
+            ctx.fillStyle = '#eee';
+            ctx.beginPath();
+            ctx.arc(head.x, head.y, head.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw eyes
+            ctx.fillStyle = '#1a1a2e';
+            ctx.beginPath();
+            ctx.arc(head.x - 6, head.y - 2, 3, 0, Math.PI * 2);
+            ctx.arc(head.x + 6, head.y - 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw joints as small dots
+            ctx.fillStyle = '#ff6b6b';
+            for (const point of points) {
+                if (point !== head) {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
         }
         
         function update() {
-            const center = getBodyCenter();
-            
             // Update physics
             for (const point of points) {
-                point.update(center.x, center.y);
+                point.update();
             }
             
             // Solve constraints multiple times for stability
@@ -695,7 +539,7 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawBox();
-            drawHuman();
+            drawStickman();
         }
         
         function loop() {
