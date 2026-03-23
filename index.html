@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Stickman Ragdoll</title>
     <style>
         * {
@@ -20,20 +20,28 @@
             justify-content: center;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             overflow: hidden;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         h1 {
             color: #eee;
-            margin-bottom: 20px;
-            font-size: 1.5rem;
+            margin-bottom: 10px;
+            font-size: 1.3rem;
             text-transform: uppercase;
             letter-spacing: 3px;
+            text-align: center;
+            padding: 0 10px;
         }
         
         .instructions {
             color: #888;
-            margin-bottom: 15px;
-            font-size: 0.9rem;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+            text-align: center;
+            padding: 0 10px;
         }
         
         canvas {
@@ -42,6 +50,8 @@
             background: #16213e;
             cursor: grab;
             box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            max-width: 95vw;
+            max-height: 70vh;
         }
         
         canvas:active {
@@ -52,24 +62,54 @@
 <body>
     <h1>Stickman Ragdoll</h1>
     <p class="instructions">Click and drag any body part to throw the ragdoll!</p>
-    <canvas id="canvas" width="800" height="600"></canvas>
+    <canvas id="canvas"></canvas>
     
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        
+        // Set canvas size based on viewport
+        function setCanvasSize() {
+            const maxWidth = Math.min(window.innerWidth * 0.95, 800);
+            const maxHeight = Math.min(window.innerHeight * 0.7, 600);
+            
+            // Maintain 4:3 aspect ratio
+            let width = maxWidth;
+            let height = width * 0.75;
+            
+            if (height > maxHeight) {
+                height = maxHeight;
+                width = height / 0.75;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Update box boundaries to fit canvas with margin
+            BOX.width = canvas.width - 100;
+            BOX.height = canvas.height - 100;
+            BOX.x = 50;
+            BOX.y = 50;
+            
+            // Scale ragdoll position to fit new canvas
+            repositionRagdoll();
+        }
         
         const GRAVITY = 0.5;
         const FRICTION = 0.99;
         const BOUNCE = 0.7;
         const CONSTRAINT_ITERATIONS = 5;
         
-        // Box boundaries
+        // Box boundaries (will be updated by setCanvasSize)
         const BOX = {
             x: 50,
             y: 50,
             width: 700,
             height: 500
         };
+        
+        // Scale factor for grabbing radius
+        let grabRadius = 40;
         
         // Point class for physics particles
         class Point {
@@ -157,108 +197,172 @@
         }
         
         // Create ragdoll
-        const centerX = BOX.x + BOX.width / 2;
-        const centerY = BOX.y + BOX.height / 2;
+        let centerX, centerY;
         
         // Body parts (points)
-        const head = new Point(centerX, centerY - 80, 20);
-        const neck = new Point(centerX, centerY - 50);
-        const torso = new Point(centerX, centerY);
-        const pelvis = new Point(centerX, centerY + 40);
+        let head, neck, torso, pelvis;
+        let leftShoulder, leftElbow, leftHand;
+        let rightShoulder, rightElbow, rightHand;
+        let leftHip, leftKnee, leftFoot;
+        let rightHip, rightKnee, rightFoot;
+        let points = [];
+        let sticks = [];
         
-        // Arms
-        const leftShoulder = new Point(centerX - 30, centerY - 40);
-        const leftElbow = new Point(centerX - 60, centerY - 20);
-        const leftHand = new Point(centerX - 80, centerY);
-        
-        const rightShoulder = new Point(centerX + 30, centerY - 40);
-        const rightElbow = new Point(centerX + 60, centerY - 20);
-        const rightHand = new Point(centerX + 80, centerY);
-        
-        // Legs
-        const leftHip = new Point(centerX - 15, centerY + 50);
-        const leftKnee = new Point(centerX - 20, centerY + 90);
-        const leftFoot = new Point(centerX - 25, centerY + 130);
-        
-        const rightHip = new Point(centerX + 15, centerY + 50);
-        const rightKnee = new Point(centerX + 20, centerY + 90);
-        const rightFoot = new Point(centerX + 25, centerY + 130);
-        
-        const points = [
-            head, neck, torso, pelvis,
-            leftShoulder, leftElbow, leftHand,
-            rightShoulder, rightElbow, rightHand,
-            leftHip, leftKnee, leftFoot,
-            rightHip, rightKnee, rightFoot
-        ];
-        
-        // Create sticks (constraints)
-        const sticks = [
-            // Head to neck
-            new Stick(head, neck),
-            // Neck to torso
-            new Stick(neck, torso),
-            // Torso to pelvis
-            new Stick(torso, pelvis),
+        function createRagdoll() {
+            centerX = BOX.x + BOX.width / 2;
+            centerY = BOX.y + BOX.height / 2;
             
-            // Left arm
-            new Stick(neck, leftShoulder),
-            new Stick(leftShoulder, leftElbow),
-            new Stick(leftElbow, leftHand),
+            // Body parts (points)
+            head = new Point(centerX, centerY - 80, 20);
+            neck = new Point(centerX, centerY - 50);
+            torso = new Point(centerX, centerY);
+            pelvis = new Point(centerX, centerY + 40);
             
-            // Right arm
-            new Stick(neck, rightShoulder),
-            new Stick(rightShoulder, rightElbow),
-            new Stick(rightElbow, rightHand),
+            // Arms
+            leftShoulder = new Point(centerX - 30, centerY - 40);
+            leftElbow = new Point(centerX - 60, centerY - 20);
+            leftHand = new Point(centerX - 80, centerY);
             
-            // Left leg
-            new Stick(pelvis, leftHip),
-            new Stick(leftHip, leftKnee),
-            new Stick(leftKnee, leftFoot),
+            rightShoulder = new Point(centerX + 30, centerY - 40);
+            rightElbow = new Point(centerX + 60, centerY - 20);
+            rightHand = new Point(centerX + 80, centerY);
             
-            // Right leg
-            new Stick(pelvis, rightHip),
-            new Stick(rightHip, rightKnee),
-            new Stick(rightKnee, rightFoot),
+            // Legs
+            leftHip = new Point(centerX - 15, centerY + 50);
+            leftKnee = new Point(centerX - 20, centerY + 90);
+            leftFoot = new Point(centerX - 25, centerY + 130);
             
-            // Cross constraints for stability
-            new Stick(head, leftShoulder),
-            new Stick(head, rightShoulder),
-            new Stick(leftShoulder, rightShoulder),
-            new Stick(leftHip, rightHip),
-            new Stick(leftShoulder, torso),
-            new Stick(rightShoulder, torso),
-            new Stick(leftHip, pelvis),
-            new Stick(rightHip, pelvis),
-            new Stick(leftShoulder, leftHip),
-            new Stick(rightShoulder, rightHip),
-            new Stick(leftElbow, torso),
-            new Stick(rightElbow, torso),
-        ];
+            rightHip = new Point(centerX + 15, centerY + 50);
+            rightKnee = new Point(centerX + 20, centerY + 90);
+            rightFoot = new Point(centerX + 25, centerY + 130);
+            
+            points = [
+                head, neck, torso, pelvis,
+                leftShoulder, leftElbow, leftHand,
+                rightShoulder, rightElbow, rightHand,
+                leftHip, leftKnee, leftFoot,
+                rightHip, rightKnee, rightFoot
+            ];
+            
+            // Create sticks (constraints)
+            sticks = [
+                // Head to neck
+                new Stick(head, neck),
+                // Neck to torso
+                new Stick(neck, torso),
+                // Torso to pelvis
+                new Stick(torso, pelvis),
+                
+                // Left arm
+                new Stick(neck, leftShoulder),
+                new Stick(leftShoulder, leftElbow),
+                new Stick(leftElbow, leftHand),
+                
+                // Right arm
+                new Stick(neck, rightShoulder),
+                new Stick(rightShoulder, rightElbow),
+                new Stick(rightElbow, rightHand),
+                
+                // Left leg
+                new Stick(pelvis, leftHip),
+                new Stick(leftHip, leftKnee),
+                new Stick(leftKnee, leftFoot),
+                
+                // Right leg
+                new Stick(pelvis, rightHip),
+                new Stick(rightHip, rightKnee),
+                new Stick(rightKnee, rightFoot),
+                
+                // Cross constraints for stability
+                new Stick(head, leftShoulder),
+                new Stick(head, rightShoulder),
+                new Stick(leftShoulder, rightShoulder),
+                new Stick(leftHip, rightHip),
+                new Stick(leftShoulder, torso),
+                new Stick(rightShoulder, torso),
+                new Stick(leftHip, pelvis),
+                new Stick(rightHip, pelvis),
+                new Stick(leftShoulder, leftHip),
+                new Stick(rightShoulder, rightHip),
+                new Stick(leftElbow, torso),
+                new Stick(rightElbow, torso),
+            ];
+        }
+        
+        function repositionRagdoll() {
+            if (points.length === 0) return;
+            
+            // Calculate scale factor based on new box size
+            const scaleX = BOX.width / 700;
+            const scaleY = BOX.height / 500;
+            
+            // Store old center positions
+            const oldCenterX = (head.x + leftFoot.x + rightFoot.x) / 3;
+            const oldCenterY = (head.y + leftFoot.y + rightFoot.y) / 3;
+            
+            // Recalculate new center
+            const newCenterX = BOX.x + BOX.width / 2;
+            const newCenterY = BOX.y + BOX.height / 2;
+            
+            // Offset to move ragdoll to new center
+            const offsetX = newCenterX - oldCenterX;
+            const offsetY = newCenterY - oldCenterY;
+            
+            // Update all point positions
+            for (const point of points) {
+                point.x += offsetX;
+                point.y += offsetY;
+                point.oldX += offsetX;
+                point.oldY += offsetY;
+            }
+        }
         
         // Mouse interaction
         let draggedPoint = null;
         let mouseX = 0;
         let mouseY = 0;
         
-        canvas.addEventListener('mousedown', (e) => {
+        function getPointerPos(e) {
             const rect = canvas.getBoundingClientRect();
-            mouseX = e.clientX - rect.left;
-            mouseY = e.clientY - rect.top;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
             
-            // Find closest point within grab radius
+            if (e.touches) {
+                return {
+                    x: (e.touches[0].clientX - rect.left) * scaleX,
+                    y: (e.touches[0].clientY - rect.top) * scaleY
+                };
+            }
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
+        
+        function findClosestPoint(x, y) {
             let closest = null;
-            let closestDist = 40;
+            let closestDist = grabRadius;
             
             for (const point of points) {
-                const dx = point.x - mouseX;
-                const dy = point.y - mouseY;
+                const dx = point.x - x;
+                const dy = point.y - y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < closestDist) {
                     closestDist = dist;
                     closest = point;
                 }
             }
+            
+            return closest;
+        }
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getPointerPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            
+            const closest = findClosestPoint(mouseX, mouseY);
             
             if (closest) {
                 draggedPoint = closest;
@@ -267,9 +371,9 @@
         });
         
         canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            mouseX = e.clientX - rect.left;
-            mouseY = e.clientY - rect.top;
+            const pos = getPointerPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
             
             if (draggedPoint) {
                 draggedPoint.x = mouseX;
@@ -293,6 +397,52 @@
                 draggedPoint = null;
             }
         });
+        
+        // Touch events
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const pos = getPointerPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            
+            const closest = findClosestPoint(mouseX, mouseY);
+            
+            if (closest) {
+                draggedPoint = closest;
+                draggedPoint.pinned = true;
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const pos = getPointerPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+            
+            if (draggedPoint) {
+                draggedPoint.x = mouseX;
+                draggedPoint.y = mouseY;
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (draggedPoint) {
+                draggedPoint.pinned = false;
+                // Apply throwing velocity
+                draggedPoint.oldX = draggedPoint.x - (mouseX - lastMouseX) * 2;
+                draggedPoint.oldY = draggedPoint.y - (mouseY - lastMouseY) * 2;
+                draggedPoint = null;
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            if (draggedPoint) {
+                draggedPoint.pinned = false;
+                draggedPoint = null;
+            }
+        }, { passive: false });
         
         let lastMouseX = 0;
         let lastMouseY = 0;
@@ -397,6 +547,15 @@
             draw();
             requestAnimationFrame(loop);
         }
+        
+        // Initialize
+        setCanvasSize();
+        createRagdoll();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            setCanvasSize();
+        });
         
         // Start the simulation
         loop();
